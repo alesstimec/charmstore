@@ -60,6 +60,8 @@ type ServerParams struct {
 	// If it is empty, IdentityURL+"/v1/discharger" will be used.
 	IdentityLocation string
 
+	TermsLocation string
+
 	// PublicKeyLocator holds a public key store.
 	// It may be nil.
 	PublicKeyLocator bakery.PublicKeyLocator
