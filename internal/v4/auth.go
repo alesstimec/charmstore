@@ -19,9 +19,12 @@ import (
 	"gopkg.in/juju/charmstore.v5-unstable/internal/router"
 )
 
+type operation string
+
 const (
-	basicRealm        = "CharmStore4"
-	promulgatorsGroup = "promulgators"
+	basicRealm                  = "CharmStore4"
+	promulgatorsGroup           = "promulgators"
+	opReadArchive     operation = "read-archive"
 )
 
 // authorize checks that the current user is authorized based on the provided
@@ -35,7 +38,7 @@ const (
 // error is returned holding the macaroon.
 //
 // This method also sets h.auth to the returned authorization info.
-func (h *ReqHandler) authorize(req *http.Request, acl []string, alwaysAuth bool, entityId *router.ResolvedURL) (authorization, error) {
+func (h *ReqHandler) authorize(req *http.Request, acl []string, alwaysAuth bool, entityIds []*router.ResolvedURL, op operation) (authorization, error) {
 	logger.Infof(
 		"authorize, auth location %q, acl %q, path: %q, method: %q",
 		h.handler.config.IdentityLocation,
@@ -52,7 +55,7 @@ func (h *ReqHandler) authorize(req *http.Request, acl []string, alwaysAuth bool,
 		}
 	}
 
-	auth, verr := h.checkRequest(req, entityId)
+	auth, verr := h.checkRequest(req, entityIds)
 	if verr == nil {
 		if err := h.checkACLMembership(auth, acl); err != nil {
 			return authorization{}, errgo.WithCausef(err, params.ErrUnauthorized, "")

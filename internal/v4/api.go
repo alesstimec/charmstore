@@ -134,6 +134,7 @@ func newReqHandler() *ReqHandler {
 			"stats/":               router.NotFoundHandler(),
 			"stats/counter/":       router.HandleJSON(h.serveStatsCounter),
 			"stats/update":         router.HandleErrors(h.serveStatsUpdate),
+			"macaroon":             router.HandleJSON(h.serveMacaroon),
 			"delegatable-macaroon": router.HandleJSON(h.serveDelegatableMacaroon),
 			"whoami":               router.HandleJSON(h.serveWhoAmI),
 		},
@@ -998,6 +999,12 @@ func (h *ReqHandler) serveChangesPublished(_ http.Header, r *http.Request) (inte
 	return results, nil
 }
 
+// GET /macaroon
+// See https://github.com/juju/charmstore/blob/v4/docs/API.md#get-macaroon
+func (h *ReqHandler) serveMacaroon(_ http.Header, _ *http.Request) (interface{}, error) {
+	return h.newMacaroon()
+}
+
 // GET /delegatable-macaroon
 // See https://github.com/juju/charmstore/blob/v4/docs/API.md#get-delegatable-macaroon
 func (h *ReqHandler) serveDelegatableMacaroon(_ http.Header, req *http.Request) (interface{}, error) {
@@ -1020,17 +1027,6 @@ func (h *ReqHandler) serveDelegatableMacaroon(_ http.Header, req *http.Request) 
 	if err != nil {
 		return nil, errgo.Mask(err)
 	}
-
-	values, err := url.ParseQuery(req.URL.RawQuery)
-	if err != nil {
-		return nil, errgo.Mask(err)
-	}
-	ids, ok := values["id"]
-	if !ok {
-		// no ids are encoded in the url query
-		return m, nil
-	}
-
 	return m, nil
 }
 
