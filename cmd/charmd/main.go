@@ -77,6 +77,7 @@ func serve(confPath string) error {
 		AuthPassword:            conf.AuthPassword,
 		IdentityLocation:        conf.IdentityLocation,
 		IdentityAPIURL:          conf.IdentityAPIURL,
+		TermsLocation:           conf.TermsLocation,
 		AgentUsername:           conf.AgentUsername,
 		AgentKey:                conf.AgentKey,
 		StatsCacheMaxAge:        conf.StatsCacheMaxAge.Duration,
@@ -95,6 +96,9 @@ func serve(confPath string) error {
 
 	ring := bakery.NewPublicKeyRing()
 	ring.AddPublicKeyForLocation(cfg.IdentityLocation, false, conf.IdentityPublicKey)
+	if conf.TermsLocation != "" {
+		ring.AddPublicKeyForLocation(cfg.TermsLocation, false, conf.TermsPublicKey)
+	}
 	cfg.PublicKeyLocator = ring
 	server, err := charmstore.NewServer(db, es, "cs", cfg, charmstore.Legacy, charmstore.V4)
 	if err != nil {
