@@ -12,10 +12,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	jujutesting "github.com/juju/testing"
@@ -2210,57 +2208,6 @@ func mustMarshalJSON(val interface{}) string {
 		panic(fmt.Errorf("cannot marshal %#v: %v", val, err))
 	}
 	return string(data)
-}
-
-func (s *APISuite) TestMacaroon(c *gc.C) {
-	var checkedCaveats []string
-	var mu sync.Mutex
-	var dischargeError error
-	s.discharge = func(cond string, arg string) ([]checkers.Caveat, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		checkedCaveats = append(checkedCaveats, cond+" "+arg)
-		return []checkers.Caveat{checkers.DeclaredCaveat("username", "who")}, dischargeError
-	}
-	rec := httptesting.DoRequest(c, httptesting.DoRequestParams{
-		Handler: s.srv,
-		URL:     storeURL("macaroon"),
-		Method:  "GET",
-	})
-	c.Assert(rec.Code, gc.Equals, http.StatusOK, gc.Commentf("body: %s", rec.Body.String()))
-	var m macaroon.Macaroon
-	err := json.Unmarshal(rec.Body.Bytes(), &m)
-	c.Assert(err, gc.IsNil)
-	c.Assert(m.Location(), gc.Equals, "charmstore")
-	client := httpbakery.NewClient()
-	ms, err := client.DischargeAll(&m)
-	c.Assert(err, gc.IsNil)
-	sort.Strings(checkedCaveats)
-	c.Assert(checkedCaveats, jc.DeepEquals, []string{
-		"is-authenticated-user ",
-	})
-	macaroonCookie, err := httpbakery.NewCookie(ms)
-	c.Assert(err, gc.IsNil)
-	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
-		Handler:      s.srv,
-		URL:          storeURL("log"),
-		Do:           bakeryDo(nil),
-		Cookies:      []*http.Cookie{macaroonCookie},
-		ExpectStatus: http.StatusUnauthorized,
-		ExpectBody: params.Error{
-			Code:    params.ErrUnauthorized,
-			Message: `unauthorized: access denied for user "who"`,
-		},
-	})
-	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
-		Handler:      s.noMacaroonSrv,
-		URL:          storeURL("log"),
-		ExpectStatus: http.StatusUnauthorized,
-		ExpectBody: params.Error{
-			Message: "authentication failed: missing HTTP auth header",
-			Code:    params.ErrUnauthorized,
-		},
-	})
 }
 
 func (s *APISuite) TestWhoAmIFailWithNoMacaroon(c *gc.C) {

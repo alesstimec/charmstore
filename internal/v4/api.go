@@ -134,7 +134,6 @@ func newReqHandler() *ReqHandler {
 			"stats/":               router.NotFoundHandler(),
 			"stats/counter/":       router.HandleJSON(h.serveStatsCounter),
 			"stats/update":         router.HandleErrors(h.serveStatsUpdate),
-			"macaroon":             router.HandleJSON(h.serveMacaroon),
 			"delegatable-macaroon": router.HandleJSON(h.serveDelegatableMacaroon),
 			"whoami":               router.HandleJSON(h.serveWhoAmI),
 		},
@@ -997,12 +996,6 @@ func (h *ReqHandler) serveChangesPublished(_ http.Header, r *http.Request) (inte
 		return nil, errgo.Mask(err)
 	}
 	return results, nil
-}
-
-// GET /macaroon
-// See https://github.com/juju/charmstore/blob/v4/docs/API.md#get-macaroon
-func (h *ReqHandler) serveMacaroon(_ http.Header, _ *http.Request) (interface{}, error) {
-	return h.newMacaroon()
 }
 
 // GET /delegatable-macaroon
