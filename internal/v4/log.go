@@ -23,7 +23,7 @@ import (
 // POST /log
 // https://github.com/juju/charmstore/blob/v4/docs/API.md#post-log
 func (h *ReqHandler) serveLog(w http.ResponseWriter, req *http.Request) error {
-	if _, err := h.authorize(req, nil, true, nil); err != nil {
+	if _, err := h.authorize(req, nil, true, nil, opNoOp); err != nil {
 		return err
 	}
 	switch req.Method {

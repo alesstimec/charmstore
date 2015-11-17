@@ -17,7 +17,7 @@ type pprofHandler struct {
 }
 
 type authorizer interface {
-	authorize(req *http.Request, acl []string, alwaysAuth bool, entityId *router.ResolvedURL) (authorization, error)
+	authorize(req *http.Request, acl []string, alwaysAuth bool, entityId *router.ResolvedURL, op operation) (authorization, error)
 }
 
 func newPprofHandler(auth authorizer) http.Handler {
@@ -33,7 +33,7 @@ func newPprofHandler(auth authorizer) http.Handler {
 }
 
 func (h *pprofHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if _, err := h.auth.authorize(req, nil, true, nil); err != nil {
+	if _, err := h.auth.authorize(req, nil, true, nil, opNoOp); err != nil {
 		router.WriteError(w, err)
 		return
 	}

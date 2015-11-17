@@ -51,6 +51,11 @@ type ArchiveSuiteUnconfiguredTerms struct {
 
 var _ = gc.Suite(&ArchiveSuiteUnconfiguredTerms{})
 
+func (s *ArchiveSuiteUnconfiguredTerms) SetUpSuite(c *gc.C) {
+	s.commonSuite.SetUpSuite(c)
+	s.enableIdentity = true
+}
+
 func (s *ArchiveSuiteUnconfiguredTerms) TestGetCharmWithTerms(c *gc.C) {
 	s.dischargeTerms = func(s1, s2 string) ([]checkers.Caveat, error) {
 		return nil, nil
@@ -69,10 +74,10 @@ func (s *ArchiveSuiteUnconfiguredTerms) TestGetCharmWithTerms(c *gc.C) {
 		URL:     archiveUrl,
 		Do:      bakeryDo(client),
 	})
-	c.Assert(rec.Code, gc.Equals, http.StatusInternalServerError)
+	c.Assert(rec.Code, gc.Equals, http.StatusUnauthorized)
 }
 
-func (s *ArchiveSuiteUnconfiguredTerms) TestGet(c *gc.C) {
+func (s *ArchiveSuiteUnconfiguredTerms) TestGetX(c *gc.C) {
 	patchArchiveCacheAges(s)
 	id := newResolvedURL("cs:~charmers/precise/wordpress-0", -1)
 	wordpress := s.assertUploadCharm(c, "POST", id, "wordpress")
@@ -118,6 +123,7 @@ var _ = gc.Suite(&ArchiveSuite{})
 func (s *ArchiveSuite) SetUpSuite(c *gc.C) {
 	s.commonSuite.SetUpSuite(c)
 	s.enableTerms = true
+	s.enableIdentity = true
 }
 
 func (s *ArchiveSuite) TestGet(c *gc.C) {
@@ -161,6 +167,8 @@ func (s *ArchiveSuite) TestGetUserHasAgreedToTermsAndConditions(c *gc.C) {
 	s.dischargeTerms = func(s1, s2 string) ([]checkers.Caveat, error) {
 		return nil, nil
 	}
+	s.discharge = dischargeForUser("bob")
+
 	client := httpbakery.NewHTTPClient()
 
 	patchArchiveCacheAges(s)
@@ -205,6 +213,7 @@ func (s *ArchiveSuite) TestGetUserHasNotAgreedToTerms(c *gc.C) {
 	s.dischargeTerms = func(_, _ string) ([]checkers.Caveat, error) {
 		return nil, errgo.New("user has not agreed to specified terms and conditions")
 	}
+	s.discharge = dischargeForUser("bob")
 	client := httpbakery.NewHTTPClient()
 
 	patchArchiveCacheAges(s)
@@ -226,6 +235,7 @@ func (s *ArchiveSuite) TestGetIgnorningTermsWithBasicAuth(c *gc.C) {
 	s.dischargeTerms = func(_, _ string) ([]checkers.Caveat, error) {
 		return nil, errgo.New("user has not agreed to specified terms and conditions")
 	}
+	s.discharge = dischargeForUser("bob")
 
 	patchArchiveCacheAges(s)
 	id := newResolvedURL("cs:~charmers/precise/terms-0", -1)
@@ -1658,6 +1668,9 @@ func (s *ArchiveSearchSuite) TestGetSearchUpdate(c *gc.C) {
 		c.Skip("MongoDB JavaScript not available")
 	}
 
+	s.discharge = dischargeForUser("bob")
+	client := httpbakery.NewHTTPClient()
+
 	for i, id := range []string{"~charmers/utopic/mysql-42", "~who/utopic/mysql-42"} {
 		c.Logf("test %d: %s", i, id)
 		url := newResolvedURL(id, -1)
@@ -1672,6 +1685,7 @@ func (s *ArchiveSearchSuite) TestGetSearchUpdate(c *gc.C) {
 		rec := httptesting.DoRequest(c, httptesting.DoRequestParams{
 			Handler: s.srv,
 			URL:     storeURL(id + "/archive"),
+			Do:      bakeryDo(client),
 		})
 		c.Assert(rec.Code, gc.Equals, http.StatusOK)
 

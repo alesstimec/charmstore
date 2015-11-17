@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -72,6 +73,8 @@ type ReqHandler struct {
 	// auth holds the results of any authorization that
 	// has been done on this request.
 	auth authorization
+
+	requestCheckers map[operation]checkRequest
 }
 
 const (
@@ -189,7 +192,13 @@ func newReqHandler() *ReqHandler {
 			// "color": router.SingleIncludeHandler(h.metaColor),
 		},
 	}, h.resolveURL, h.AuthorizeEntity, h.entityExists)
+
+	h.requestCheckers = map[operation]checkRequest{
+		opNoOp:        h.checkRequest,
+		opReadArchive: h.checkReadArchiveRequest,
+	}
 	return &h
+
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -1002,17 +1011,28 @@ func (h *ReqHandler) serveChangesPublished(_ http.Header, r *http.Request) (inte
 // GET /macaroon
 // See https://github.com/juju/charmstore/blob/v4/docs/API.md#get-macaroon
 func (h *ReqHandler) serveMacaroon(_ http.Header, _ *http.Request) (interface{}, error) {
-	return h.newMacaroon()
+	return h.newMacaroon(checkers.DenyCaveat(string(opReadArchive)))
 }
 
 // GET /delegatable-macaroon
 // See https://github.com/juju/charmstore/blob/v4/docs/API.md#get-delegatable-macaroon
 func (h *ReqHandler) serveDelegatableMacaroon(_ http.Header, req *http.Request) (interface{}, error) {
+	decoder := json.NewDecoder(req.Body)
+	var charmRef charm.Reference
+	err := decoder.Decode(&charmRef)
+	if err != nil {
+		return nil, errgo.Mask(err)
+	}
+	resolvedURL, err := ResolveURL(h.Store, &charmRef)
+	if err != nil {
+		return nil, errgo.Mask(err)
+	}
+
 	// Note that we require authorization even though we allow
 	// anyone to obtain a delegatable macaroon. This means
 	// that we will be able to add the declared caveats to
 	// the returned macaroon.
-	auth, err := h.authorize(req, []string{params.Everyone}, true, nil)
+	auth, err := h.authorize(req, []string{params.Everyone}, true, resolvedURL, opReadArchive)
 	if err != nil {
 		return nil, errgo.Mask(err, errgo.Any)
 	}
@@ -1023,6 +1043,8 @@ func (h *ReqHandler) serveDelegatableMacaroon(_ http.Header, req *http.Request) 
 	m, err := h.Store.Bakery.NewMacaroon("", nil, []checkers.Caveat{
 		checkers.DeclaredCaveat(usernameAttr, auth.Username),
 		checkers.TimeBeforeCaveat(time.Now().Add(delegatableMacaroonExpiry)),
+		checkers.AllowCaveat(string(opReadArchive), string(opNoOp)),
+		checkers.Caveat{Condition: fmt.Sprintf("is-entity %s", resolvedURL.String())},
 	})
 	if err != nil {
 		return nil, errgo.Mask(err)
@@ -1033,7 +1055,7 @@ func (h *ReqHandler) serveDelegatableMacaroon(_ http.Header, req *http.Request) 
 // GET /whoami
 // See https://github.com/juju/charmstore/blob/v4/docs/API.md#whoami
 func (h *ReqHandler) serveWhoAmI(_ http.Header, req *http.Request) (interface{}, error) {
-	auth, err := h.authorize(req, []string{params.Everyone}, true, nil)
+	auth, err := h.authorize(req, []string{params.Everyone}, true, nil, opNoOp)
 	if err != nil {
 		return nil, errgo.Mask(err, errgo.Any)
 	}
@@ -1053,7 +1075,7 @@ func (h *ReqHandler) serveWhoAmI(_ http.Header, req *http.Request) (interface{},
 // PUT id/promulgate
 // See https://github.com/juju/charmstore/blob/v4/docs/API.md#put-idpromulgate
 func (h *ReqHandler) serveAdminPromulgate(id *router.ResolvedURL, w http.ResponseWriter, req *http.Request) error {
-	if _, err := h.authorize(req, []string{promulgatorsGroup}, false, id); err != nil {
+	if _, err := h.authorize(req, []string{promulgatorsGroup}, false, id, opNoOp); err != nil {
 		return errgo.Mask(err, errgo.Any)
 	}
 	if req.Method != "PUT" {

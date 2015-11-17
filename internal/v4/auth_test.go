@@ -197,6 +197,7 @@ var _ = gc.Suite(&authSuite{})
 
 func (s *authSuite) SetUpSuite(c *gc.C) {
 	s.enableIdentity = true
+	s.enableTerms = true
 	s.commonSuite.SetUpSuite(c)
 }
 
@@ -665,9 +666,10 @@ var isEntityCaveatTests = []struct {
 
 func (s *authSuite) TestIsEntityCaveat(c *gc.C) {
 	s.discharge = func(_, _ string) ([]checkers.Caveat, error) {
-		return []checkers.Caveat{{
-			Condition: "is-entity cs:~charmers/utopic/wordpress-42",
-		},
+		return []checkers.Caveat{
+			{
+				Condition: "is-entity cs:~charmers/utopic/wordpress-42",
+			},
 			checkers.DeclaredCaveat(v4.UsernameAttr, "bob"),
 		}, nil
 	}
@@ -676,14 +678,14 @@ func (s *authSuite) TestIsEntityCaveat(c *gc.C) {
 	err := s.store.AddCharmWithArchive(
 		newResolvedURL("~charmers/utopic/wordpress-41", 9),
 		storetesting.Charms.CharmDir("wordpress"))
-	c.Assert(err, gc.IsNil)
+	c.Assert(err, jc.ErrorIsNil)
 	err = s.store.AddCharmWithArchive(
 		newResolvedURL("~charmers/utopic/wordpress-42", 10),
 		storetesting.Charms.CharmDir("wordpress"))
-	c.Assert(err, gc.IsNil)
+	c.Assert(err, jc.ErrorIsNil)
 	// Change the ACLs for the testing charm.
 	err = s.store.SetPerms(charm.MustParseReference("cs:~charmers/wordpress"), "read", "bob")
-	c.Assert(err, gc.IsNil)
+	c.Assert(err, jc.ErrorIsNil)
 
 	for i, test := range isEntityCaveatTests {
 		c.Logf("test %d: %s", i, test.url)
@@ -706,15 +708,29 @@ func (s *authSuite) TestIsEntityCaveat(c *gc.C) {
 }
 
 func (s *authSuite) TestDelegatableMacaroon(c *gc.C) {
-	// Create a new server with a third party discharger.
 	s.discharge = dischargeForUser("bob")
+
+	err := s.store.AddCharmWithArchive(
+		newResolvedURL("~charmers/utopic/wordpress-41", 41),
+		storetesting.Charms.CharmDir("wordpress"))
+	c.Assert(err, gc.IsNil)
+	id := newResolvedURL("~charmers/utopic/wordpress-42", 42)
+	err = s.store.AddCharmWithArchive(
+		id,
+		storetesting.Charms.CharmDir("wordpress"))
+	c.Assert(err, jc.ErrorIsNil)
+
+	// set read permission for user "bob"
+	err = s.store.SetPerms(&id.URL, "read", "bob")
+	c.Assert(err, jc.ErrorIsNil)
 
 	// First check that we get a macaraq error when using a vanilla http do
 	// request with both bakery protocol.
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
-		Handler: s.srv,
-		URL:     storeURL("delegatable-macaroon"),
-		Header:  http.Header{"Bakery-Protocol-Version": {"1"}},
+		Handler:  s.srv,
+		URL:      storeURL("delegatable-macaroon"),
+		JSONBody: &id.URL,
+		Header:   http.Header{"Bakery-Protocol-Version": {"1"}},
 		ExpectBody: httptesting.BodyAsserter(func(c *gc.C, m json.RawMessage) {
 			// Allow any body - the next check will check that it's a valid macaroon.
 		}),
@@ -722,8 +738,9 @@ func (s *authSuite) TestDelegatableMacaroon(c *gc.C) {
 	})
 
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
-		Handler: s.srv,
-		URL:     storeURL("delegatable-macaroon"),
+		Handler:  s.srv,
+		URL:      storeURL("delegatable-macaroon"),
+		JSONBody: &id.URL,
 		ExpectBody: httptesting.BodyAsserter(func(c *gc.C, m json.RawMessage) {
 			// Allow any body - the next check will check that it's a valid macaroon.
 		}),
@@ -735,8 +752,9 @@ func (s *authSuite) TestDelegatableMacaroon(c *gc.C) {
 	now := time.Now()
 	var gotBody json.RawMessage
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
-		Handler: s.srv,
-		URL:     storeURL("delegatable-macaroon"),
+		Handler:  s.srv,
+		URL:      storeURL("delegatable-macaroon"),
+		JSONBody: &id.URL,
 		ExpectBody: httptesting.BodyAsserter(func(c *gc.C, m json.RawMessage) {
 			gotBody = m
 		}),
@@ -746,7 +764,7 @@ func (s *authSuite) TestDelegatableMacaroon(c *gc.C) {
 
 	c.Assert(gotBody, gc.NotNil)
 	var m macaroon.Macaroon
-	err := json.Unmarshal(gotBody, &m)
+	err = json.Unmarshal(gotBody, &m)
 	c.Assert(err, gc.IsNil)
 
 	caveats := m.Caveats()
@@ -760,20 +778,21 @@ func (s *authSuite) TestDelegatableMacaroon(c *gc.C) {
 			c.Assert(err, gc.IsNil)
 			c.Assert(t, jc.TimeBetween(now.Add(v4.DelegatableMacaroonExpiry), now.Add(v4.DelegatableMacaroonExpiry+time.Second)))
 			foundExpiry = true
+		case checkers.CondAllow:
+			c.Assert(arg, gc.Equals, "read-archive no-op")
+		case "is-entity":
+			c.Assert(arg, gc.Equals, "cs:~charmers/utopic/wordpress-42")
+		case checkers.CondDeclared:
+			c.Assert(arg, gc.Equals, "username bob")
 		}
 	}
 	c.Assert(foundExpiry, jc.IsTrue)
 
 	// Now check that we can use the obtained macaroon to do stuff
 	// as the declared user.
-
-	err = s.store.AddCharmWithArchive(
-		newResolvedURL("~charmers/utopic/wordpress-41", 9),
-		storetesting.Charms.CharmDir("wordpress"))
-	c.Assert(err, gc.IsNil)
-	// Change the ACLs for the testing charm.
-	err = s.store.SetPerms(charm.MustParseReference("cs:~charmers/wordpress"), "read", "bob")
-	c.Assert(err, gc.IsNil)
+	s.discharge = func(_, _ string) ([]checkers.Caveat, error) {
+		return nil, errgo.New("no discharge")
+	}
 
 	// First check that we require authorization to access the charm.
 	rec := httptesting.DoRequest(c, httptesting.DoRequestParams{
@@ -802,9 +821,36 @@ func (s *authSuite) TestDelegatableMacaroon(c *gc.C) {
 		ExpectStatus: http.StatusOK,
 		Do:           bakeryDo(client),
 	})
+
+	// now check the GET arhive call
+	response := httptesting.DoRequest(c, httptesting.DoRequestParams{
+		Handler: s.srv,
+		URL:     storeURL("~charmers/utopic/wordpress/archive"),
+		Do:      bakeryDo(client),
+	})
+	c.Assert(response.Code, gc.Equals, http.StatusOK)
+	c.Assert(response.Header().Get("Content-Type"), gc.Equals, "application/zip")
+
+	cookieURL, _ := url.Parse(storeURL("~charmers/utopic/wordpress-41/archive"))
+	c.Logf("cookies %#v", client.Jar.Cookies(cookieURL))
+	// now check the GET arhive call
+	httptesting.DoRequest(c, httptesting.DoRequestParams{
+		Handler: s.srv,
+		URL:     storeURL("~charmers/utopic/wordpress-41/archive"),
+
+		Do:          bakeryDo(client),
+		ExpectError: ".*third party refused discharge: cannot discharge: no discharge",
+	})
 }
 
 func (s *authSuite) TestDelegatableMacaroonWithBasicAuth(c *gc.C) {
+	err := s.store.AddCharmWithArchive(
+		newResolvedURL("~charmers/utopic/wordpress-42", 10),
+		storetesting.Charms.CharmDir("wordpress"))
+	c.Assert(err, jc.ErrorIsNil)
+
+	charmRef := charm.MustParseReference("cs:~charmers/wordpress")
+
 	// First check that we get a macaraq error when using a vanilla http do
 	// request.
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
@@ -812,6 +858,7 @@ func (s *authSuite) TestDelegatableMacaroonWithBasicAuth(c *gc.C) {
 		Username: testUsername,
 		Password: testPassword,
 		URL:      storeURL("delegatable-macaroon"),
+		JSONBody: charmRef,
 		ExpectBody: params.Error{
 			Code:    params.ErrForbidden,
 			Message: "delegatable macaroon is not obtainable using admin credentials",
